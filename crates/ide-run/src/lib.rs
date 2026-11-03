@@ -3,6 +3,7 @@
 mod config;
 mod detect;
 pub mod envfile;
+mod external;
 pub mod go;
 pub mod gradle_jvm;
 pub mod java_cmdline;
@@ -189,6 +190,8 @@ pub struct RunInfo {
     /// Runs on a pseudo-terminal: output is raw terminal data, input goes in keystroke by keystroke.
     pub pty: bool,
 }
+
+pub use external::{EXTERNAL_PREFIX, ExternalDetection, set_external_detection};
 
 /// Detects configs from package.json scripts, Cargo.toml targets, build.gradle(.kts),
 /// pom.xml, go.mod, pyproject/pytest, Makefile.

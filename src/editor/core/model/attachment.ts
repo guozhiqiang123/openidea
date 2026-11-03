@@ -3,7 +3,8 @@
  * diff): local edits flow view → model → backend and other editors; edits
  * from elsewhere are mirrored into the view. See `attachDocument` in editor/api.
  */
-import { Transaction, type Annotation, type ChangeSet } from "@codemirror/state";
+import { redo, undo } from "@codemirror/commands";
+import { Transaction, type Annotation, type ChangeSet, type StateCommand } from "@codemirror/state";
 import { EditorView, ViewPlugin } from "@codemirror/view";
 import {
   _addEditor,
@@ -52,8 +53,24 @@ export async function attachDocument(manager: DocumentManager, path: string): Pr
     };
   });
 
+  /** Runs a history command where the document's history is (see `DocumentAttachment.undo`). */
+  const historyCommand = (command: StateCommand): boolean => {
+    const slot = model.primarySlot();
+    if (slot?.view) return command(slot.view);
+    if (slot)
+      return command({
+        state: slot.state,
+        dispatch: (tr) => {
+          slot.state = tr.state;
+          if (tr.docChanged) model.onLocal(tr.changes, slot);
+        },
+      });
+    return target.view ? command(target.view) : false;
+  };
+
   return {
     path,
+    doc: model.doc,
     text: () => model.sync.localText.toString(),
     readOnly: model.getMeta().readOnly || model.virtual,
     extension: [
@@ -65,6 +82,10 @@ export async function attachDocument(manager: DocumentManager, path: string): Pr
       }),
     ],
     save: () => model.save("explicit"),
+    synced: () => model.sync.whenIdle(),
+    dirty: () => model.getMeta().dirty,
+    undo: () => historyCommand(undo),
+    redo: () => historyCommand(redo),
     release: () => {
       if (released) return;
       released = true;

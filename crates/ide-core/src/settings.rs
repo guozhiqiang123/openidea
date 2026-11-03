@@ -58,6 +58,9 @@ pub struct Settings {
     pub deployment: DeploymentSettings,
     /// Build, Execution, Deployment › Run Targets.
     pub run_targets: Vec<RunTarget>,
+    /// Plugin settings (`[contributes.settings]`): plugin id → its values by key.
+    #[specta(type = BTreeMap<String, BTreeMap<String, specta_typescript::Unknown>>)]
+    pub plugins: BTreeMap<String, serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -154,6 +157,7 @@ impl Default for Settings {
             ssh: SshSettings::default(),
             deployment: DeploymentSettings::default(),
             run_targets: Vec::new(),
+            plugins: BTreeMap::new(),
         }
     }
 }

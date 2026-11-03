@@ -1,9 +1,21 @@
-//! Theme contributions: design-token overrides applied as CSS variables on `:root`.
-//! Theme and editor-scheme files are JSON that may contain `//` and `/* */` comments.
+//! The `themes` extension point: design-token overrides applied as CSS
+//! variables on `:root`. Theme and editor-scheme files are JSON that may
+//! contain `//` and `/* */` comments.
+//!
+//! ```toml
+//! [[contributes.themes]]
+//! path = "themes/harbor-night.json"
+//! editor-scheme = "themes/harbor-night.scheme.json"   # optional
+//! ```
 
+use ide_extension::{ExtensionPoint, Package, Placement, Prepared, UiContribution, UiStore, decode};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+pub const POINT_ID: &str = "themes";
 
 const MAX_TOKENS: usize = 512;
 const MAX_VALUE_LEN: usize = 256;
@@ -48,7 +60,7 @@ impl ThemeDef {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        crate::manifest::validate_command_id(&self.id).map_err(|e| e.replace("command id", "theme id"))?;
+        ide_extension::validate_item_id(&self.id, "theme id")?;
         if self.name.trim().is_empty() {
             return Err("theme name must not be empty".into());
         }
@@ -68,6 +80,63 @@ impl ThemeDef {
             }
         }
         Ok(())
+    }
+}
+
+pub struct ThemesPoint {
+    store: Arc<UiStore>,
+}
+
+impl ThemesPoint {
+    pub fn new(store: Arc<UiStore>) -> Self {
+        Self { store }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+struct Decl {
+    path: Option<PathBuf>,
+    #[serde(default)]
+    editor_scheme: Option<PathBuf>,
+    /// The theme JSON inline (runtime `register-theme`).
+    definition: Option<String>,
+}
+
+impl ExtensionPoint for ThemesPoint {
+    fn id(&self) -> &'static str {
+        POINT_ID
+    }
+
+    fn placement(&self) -> Placement {
+        Placement::Ui
+    }
+
+    fn prepare(&self, pkg: &Package, decl: toml::Value) -> Result<Prepared, String> {
+        let decl: Decl = decode(POINT_ID, decl)?;
+        let mut files = Vec::new();
+        let mut theme = match (&decl.path, &decl.definition) {
+            (Some(path), None) => {
+                files.push(path.clone());
+                ThemeDef::parse(&pkg.read_text(path)?).map_err(|e| format!("{}: {e}", path.display()))?
+            }
+            (None, Some(def)) => ThemeDef::parse(def)?,
+            _ => return Err("give either `path` or `definition`".into()),
+        };
+        if let Some(scheme) = &decl.editor_scheme {
+            files.push(scheme.clone());
+            theme.merge_editor_scheme(&pkg.read_text(scheme)?).map_err(|e| format!("{}: {e}", scheme.display()))?;
+        }
+        let item = UiContribution {
+            plugin_id: pkg.id().to_owned(),
+            point: POINT_ID.into(),
+            key: theme.id.clone(),
+            decl: serde_json::to_value(&theme).map_err(|e| e.to_string())?,
+        };
+        let store = self.store.clone();
+        let mut prepared = Prepared::new(theme.name.clone(), move || Ok(store.insert(item))).key(theme.id);
+        prepared.files = files;
+        Ok(prepared)
     }
 }
 
